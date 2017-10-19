@@ -1,95 +1,150 @@
 package main
 
 import (
-	"encoding/json"
 	"flag"
 	"fmt"
-	"net"
-	"strconv"
-	"strings"
+	"io"
+	"os"
 
-	"github.com/vishvananda/netlink"
-	"github.com/vishvananda/netlink/nl"
+	"github.com/masayoshi634/ipgo/pkg/command"
+	"github.com/pkg/errors"
 )
 
-func toJson(t interface{}) {
-	jsonBytes, err := json.Marshal(t)
-	if err != nil {
-		fmt.Println("JSON Marshal error:", err)
-		return
-	}
+var (
+	Version  string
+	Revision string
+)
 
-	fmt.Println(string(jsonBytes))
+var helpText = `
+Usage: ipgo [options]
+  ip command for json
+Commands:
+  addr, a          like ip addr
+  link, l          like ip link
+Options:
+  --help, -h       print help
+`
+
+type CLI struct {
+	// outStream and errStream are the stdout and stderr
+	// to write message from the CLI.
+	outStream, errStream io.Writer
 }
 
-func ipAddrShow() ([]AddrShowResult, error) {
-	addrShowResults := []AddrShowResult{}
-	addrs, err := netlink.AddrList(nil, nl.FAMILY_ALL)
-	if err != nil {
-		return nil, err
+func (cli *CLI) prepareFlags(help string) *flag.FlagSet {
+	Name := "ipgo"
+	flags := flag.NewFlagSet(Name, flag.ContinueOnError)
+	flags.SetOutput(cli.errStream)
+	flags.Usage = func() {
+		fmt.Fprint(cli.errStream, help)
 	}
-	for _, addr := range addrs {
-		peerMask, err := strconv.Atoi(strings.Split(addr.Peer.String(), "/")[1])
-		if err != nil {
-			return nil, err
-		}
-		peer := Peer{addr.Peer.IP, peerMask}
-
-		mask, err := strconv.Atoi(strings.Split(addr.IPNet.String(), "/")[1])
-		if err != nil {
-			return nil, err
-		}
-		addrShowResult := AddrShowResult{addr, mask, peer}
-		addrShowResults = append(addrShowResults, addrShowResult)
-	}
-
-	return addrShowResults, nil
+	return flags
 }
 
-func ipLinkShow() ([]LinkShowResult, error) {
-	linkShowResults := []LinkShowResult{}
-	links, err := netlink.LinkList()
+func (cli *CLI) Run(args []string) int {
+	if len(args) <= 1 {
+		fmt.Fprint(cli.errStream, helpText)
+		return 2
+	}
+
+	var err error
+
+	switch args[1] {
+	case "addr", "a":
+		err = cli.doAddr(args[2:])
+	case "link", "l":
+		err = cli.doLink(args[2:])
+	case "-h", "--help":
+		fmt.Fprint(cli.errStream, helpText)
+	default:
+		fmt.Fprint(cli.errStream, helpText)
+		return 1
+	}
+
 	if err != nil {
-		return nil, err
+		fmt.Fprintln(cli.errStream, err)
+		return 2
 	}
-	for _, link := range links {
-		linkAttrs := link.Attrs()
-		linkShowResult := LinkShowResult{linkAttrs, link.Type(), linkAttrs.HardwareAddr.String()}
-		linkShowResults = append(linkShowResults, linkShowResult)
+
+	return 0
+}
+
+var addrHelpText = `
+Usage: ipgo addr [options]
+  ip command for json
+Commands:
+  show,s                          like ip addr show
+  add,a   [ipaddr] [interface]    ipgo addr add 127.0.0.2/32 lo
+  del,d   [ipaddr] [interface]    ipgo addr del 127.0.0.2/32 lo
+  replace,r [ipaddr] [interface]  ipgo addr del 127.0.0.2/32 lo
+Options:
+`
+
+func (cli *CLI) doAddr(args []string) error {
+	var err error
+	var ipnet, iface string
+
+	if len(args) < 1 {
+		return err
 	}
-	return linkShowResults, nil
+
+	switch args[0] {
+	case "show", "s":
+		return command.AddrShow()
+	case "add", "a":
+		if len(args) < 3 {
+			fmt.Fprint(cli.errStream, addrHelpText)
+			return errors.Errorf("ipaddr and interface required")
+		}
+		ipnet = args[1]
+		iface = args[2]
+		return command.AddrAdd(ipnet, iface)
+	case "del", "d":
+		if len(args) < 3 {
+			fmt.Fprint(cli.errStream, addrHelpText)
+			return errors.Errorf("ipaddr and interface required")
+		}
+		ipnet = args[1]
+		iface = args[2]
+		return command.AddrDelete(ipnet, iface)
+	case "replace", "r":
+		if len(args) < 3 {
+			fmt.Fprint(cli.errStream, addrHelpText)
+			return errors.Errorf("ipaddr and interface required")
+		}
+		ipnet = args[1]
+		iface = args[2]
+		return command.AddrReplace(ipnet, iface)
+	default:
+		return err
+	}
+
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+func (cli *CLI) doLink(args []string) error {
+	var err error
+	if len(args) < 1 {
+		return err
+	}
+
+	switch args[0] {
+	case "show", "s":
+		err = command.LinkShow()
+	default:
+		return err
+	}
+
+	if err != nil {
+		return err
+	}
+	return nil
 }
 
 func main() {
-	var (
-		opt1 = flag.Bool("addr", false, "First string option")
-		opt2 = flag.Bool("link", false, "Second string option")
-	)
-	flag.Parse()
-
-	if *opt1 {
-		result, _ := ipAddrShow()
-		toJson(result)
-	} else if *opt2 {
-		result, _ := ipLinkShow()
-		toJson(result)
-	}
-
-}
-
-type LinkShowResult struct {
-	*netlink.LinkAttrs
-	Type         string
-	HardwareAddr string
-}
-
-type AddrShowResult struct {
-	netlink.Addr
-	Mask int
-	Peer Peer
-}
-
-type Peer struct {
-	IP   net.IP
-	Mask int
+	cli := &CLI{outStream: os.Stdout, errStream: os.Stderr}
+	os.Exit(cli.Run(os.Args))
 }

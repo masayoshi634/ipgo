@@ -2,6 +2,12 @@
 
 
 [[projects]]
+  name = "github.com/pkg/errors"
+  packages = ["."]
+  revision = "645ef00459ed84a119197bfb8d8205042c6df63d"
+  version = "v0.8.0"
+
+[[projects]]
   branch = "master"
   name = "github.com/vishvananda/netlink"
   packages = [".","nl"]
@@ -16,6 +22,6 @@
 [solve-meta]
   analyzer-name = "dep"
   analyzer-version = 1
-  inputs-digest = "2223327d0459e119e847a34fb3ecd5d851a66f22d1c65bbd0e2e35387f4ceed4"
+  inputs-digest = "f05aca0e8cafa8e762e9442df74a185433c935bb6c46e580fe8575f20365af70"
   solver-name = "gps-cdcl"
   solver-version = 1
